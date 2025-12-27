@@ -217,15 +217,15 @@ app.post('/api/applications/submit', async (req, res) => {
 
     const applicationId = result.rows[0].id;
 
-    // Отправляем уведомление админу
-    if (MAIN_BOT_TOKEN && ADMIN_TELEGRAM_ID) {
+    // Отправляем уведомление админу в бот заявок
+    if (NOTIFY_BOT_TOKEN && ADMIN_TELEGRAM_ID) {
       const message = `🆕 <b>Новая заявка #${applicationId}</b>\n\n` +
                      `📋 Категория: ${category}\n` +
                      `🏢 Компания: ${name}\n` +
                      `👤 Менеджер: @${managerUsername.replace('@', '')}\n\n` +
                      `📝 Описание: ${description}`;
       
-      await sendTelegramMessage(MAIN_BOT_TOKEN, ADMIN_TELEGRAM_ID, message);
+      await sendTelegramMessage(NOTIFY_BOT_TOKEN, ADMIN_TELEGRAM_ID, message);
     }
 
     res.json({ 
@@ -294,15 +294,15 @@ app.post('/api/applications/approve', async (req, res) => {
         console.log(`Code ${notifyCode} generated for @${manager_username}. Send status:`, sendResult);
         
         // Отправляем код админу для ручной передачи (если автоотправка не удалась)
-        if (!sendResult.success && MAIN_BOT_TOKEN && ADMIN_TELEGRAM_ID) {
+        if (!sendResult.success && NOTIFY_BOT_TOKEN && ADMIN_TELEGRAM_ID) {
           const adminMessage = 
             `✅ <b>Заявка #${id} одобрена</b>\n\n` +
             `🏢 Компания: ${name}\n` +
             `👤 Менеджер: @${manager_username}\n\n` +
             `🔑 Код для менеджера:\n<code>${notifyCode}</code>\n\n` +
-            `⚠️ Менеджер еще не запускал бота. Отправьте ему код вручную.`;
+            `⚠️ Менеджер еще не запускал каталог-бота. Отправьте ему код вручную.`;
           
-          await sendTelegramMessage(MAIN_BOT_TOKEN, ADMIN_TELEGRAM_ID, adminMessage);
+          await sendTelegramMessage(NOTIFY_BOT_TOKEN, ADMIN_TELEGRAM_ID, adminMessage);
         }
       }
     }
