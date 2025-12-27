@@ -2,10 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { sql } from '@vercel/postgres';
-const { sql } = pkg;
-
-// Используем DATABASE_URL
-process.env.POSTGRES_URL = process.env.DATABASE_URL;
 import crypto from 'crypto';
 
 dotenv.config();
