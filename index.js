@@ -9,6 +9,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Хранилище состояний пользователей для диалоговой регистрации
+const userStates = new Map();
+
 // Telegram Bot Tokens
 const MAIN_BOT_TOKEN = process.env.VITE_BOT_TOKEN; // Основной бот
 const NOTIFY_BOT_TOKEN = process.env.NOTIFY_BOT_TOKEN; // Бот уведомлений
@@ -492,19 +495,42 @@ app.post('/api/bot/main-webhook', async (req, res) => {
 
     // Команда /start
     if (text === '/start') {
+      // Очищаем состояние при старте
+      userStates.delete(chatId);
+      
       const welcomeMessage = `🎯 <b>Добро пожаловать в OFB Catalog!</b>\n\n` +
                             `📱 Откройте каталог премиум-услуг для OnlyFans индустрии.\n\n` +
                             `💼 Если вы получили код активации, используйте команду:\n` +
-                            `/register OFB-XXXXXXXX`;
+                            `/register\n\n` +
+                            `После этого просто отправьте ваш код.`;
 
       await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, welcomeMessage);
       return res.json({ ok: true });
     }
 
-    // Команда /register CODE (8 цифр)
-    const registerMatch = text.match(/^\/register\s+(OFB-\d{8})$/i);
-    if (registerMatch) {
-      const code = registerMatch[1].toUpperCase();
+    // Команда /register - запрос кода
+    if (text === '/register') {
+      userStates.set(chatId, { waitingForCode: true });
+      
+      const requestMessage = `🔑 <b>Регистрация кода уведомлений</b>\n\n` +
+                           `Пожалуйста, укажите свой код в формате:\n` +
+                           `<code>OFB-12345678</code>\n\n` +
+                           `Администратор выдаст вам код после одобрения и публикации вашей заявки.`;
+      
+      await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, requestMessage);
+      return res.json({ ok: true });
+    }
+
+    // Проверяем, ждёт ли пользователь ввода кода
+    const userState = userStates.get(chatId);
+    
+    // Проверка кода (с командой или без)
+    const codeMatch = text.match(/^(?:\/register\s+)?(OFB-\d{8})$/i);
+    if (codeMatch || (userState?.waitingForCode && text.match(/^OFB-\d{8}$/i))) {
+      const code = (codeMatch ? codeMatch[1] : text).toUpperCase();
+      
+      // Очищаем состояние
+      userStates.delete(chatId);
 
       // Ищем заявку с таким кодом
       const result = await sql`
@@ -533,45 +559,20 @@ app.post('/api/bot/main-webhook', async (req, res) => {
         await sendTelegramMessage(
           MAIN_BOT_TOKEN, 
           chatId, 
-          '❌ Код не найден или заявка не одобрена.\n\nПроверьте правильность кода и попробуйте снова.\n\nФормат: /register OFB-XXXXXXXX'
+          '❌ <b>Код не найден</b>\n\nВозможные причины:\n• Код введён неправильно\n• Заявка ещё не одобрена\n• Код уже использован\n\nПроверьте код и попробуйте снова командой /register'
         );
       }
       return res.json({ ok: true });
     }
 
-    // Проверяем код без команды (для удобства) - 8 цифр
-    const codeMatch = text.match(/^OFB-\d{8}$/i);
-    if (codeMatch) {
-      const code = codeMatch[0].toUpperCase();
-      
-      const result = await sql`
-        SELECT id, name, manager_username 
-        FROM applications 
-        WHERE UPPER(notify_code) = ${code} AND status = 'published'
-      `;
-
-      if (result.rows.length > 0) {
-        const { id, name, manager_username } = result.rows[0];
-
-        await sql`
-          UPDATE applications 
-          SET manager_telegram_id = ${chatId}
-          WHERE id = ${id}
-        `;
-
-        const successMessage = `✅ <b>Регистрация успешна!</b>\n\n` +
-                              `🏢 Компания: ${name}\n` +
-                              `👤 Менеджер: @${manager_username.replace('@', '')}\n\n` +
-                              `🔔 Теперь вы будете получать уведомления когда пользователи просматривают вашу услугу в каталоге.`;
-
-        await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, successMessage);
-      } else {
-        await sendTelegramMessage(
-          MAIN_BOT_TOKEN, 
-          chatId, 
-          '❌ Код не найден или заявка не одобрена.\n\nИспользуйте команду: /register OFB-XXXXXXXX'
-        );
-      }
+    // Если пользователь ждёт код, но отправил что-то не то
+    if (userState?.waitingForCode) {
+      await sendTelegramMessage(
+        MAIN_BOT_TOKEN,
+        chatId,
+        '❌ Неправильный формат кода.\n\nКод должен быть в формате: <code>OFB-12345678</code>\n\nПопробуйте ещё раз или отправьте /register для новой попытки.'
+      );
+      return res.json({ ok: true });
     }
 
     res.json({ ok: true });
