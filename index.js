@@ -368,7 +368,7 @@ app.put('/api/applications/update', async (req, res) => {
   }
 });
 
-// DELETE /api/applications/delete/:id - Удаление заявки
+// DELETE /api/applications/delete/:id - Перенос в архив
 app.delete('/api/applications/delete/:id', async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!verifyToken(token)) {
@@ -378,16 +378,41 @@ app.delete('/api/applications/delete/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Удаляем заявку
+    // Переносим в архив вместо удаления
     await sql`
-      DELETE FROM applications 
+      UPDATE applications 
+      SET status = 'archived', updated_at = NOW()
       WHERE id = ${id}
     `;
 
-    res.json({ success: true, message: 'Application deleted' });
+    res.json({ success: true, message: 'Application archived' });
   } catch (error) {
-    console.error('Delete application error:', error);
-    res.status(500).json({ error: 'Failed to delete application' });
+    console.error('Archive application error:', error);
+    res.status(500).json({ error: 'Failed to archive application' });
+  }
+});
+
+// POST /api/applications/restore/:id - Вернуть на модерацию
+app.post('/api/applications/restore/:id', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!verifyToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const { id } = req.params;
+
+    // Возвращаем на модерацию
+    await sql`
+      UPDATE applications 
+      SET status = 'pending', updated_at = NOW()
+      WHERE id = ${id}
+    `;
+
+    res.json({ success: true, message: 'Application restored to moderation' });
+  } catch (error) {
+    console.error('Restore application error:', error);
+    res.status(500).json({ error: 'Failed to restore application' });
   }
 });
 
@@ -650,14 +675,14 @@ app.post('/api/bot/main-webhook', async (req, res) => {
 
     // Команда /start
     if (text === '/start') {
-      // Очищаем состояние при старте
       userStates.delete(chatId);
       
       const welcomeMessage = `🎯 <b>Добро пожаловать в OFB Catalog!</b>\n\n` +
-                            `📱 Откройте каталог премиум-услуг для OnlyFans индустрии.\n\n` +
-                            `💼 Если вы получили код активации, используйте команду:\n` +
-                            `/register\n\n` +
-                            `После этого просто отправьте ваш код.`;
+                            `📱 Каталог премиум-услуг для OnlyFans индустрии\n\n` +
+                            `<b>📋 Доступные команды:</b>\n\n` +
+                            `/register - Регистрация кода уведомлений\n` +
+                            `/stats - Статистика ваших услуг\n\n` +
+                            `💡 Выберите команду из меню или введите вручную`;
 
       await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, welcomeMessage);
       return res.json({ ok: true });
@@ -858,10 +883,11 @@ async function handleBotMessage(message) {
     userStates.delete(chatId);
     
     const welcomeMessage = `🎯 <b>Добро пожаловать в OFB Catalog!</b>\n\n` +
-                          `📱 Откройте каталог премиум-услуг для OnlyFans индустрии.\n\n` +
-                          `💼 Если вы получили код активации, используйте команду:\n` +
-                          `/register\n\n` +
-                          `После этого просто отправьте ваш код.`;
+                          `📱 Каталог премиум-услуг для OnlyFans индустрии\n\n` +
+                          `<b>📋 Доступные команды:</b>\n\n` +
+                          `/register - Регистрация кода уведомлений\n` +
+                          `/stats - Статистика ваших услуг\n\n` +
+                          `💡 Выберите команду из меню или введите вручную`;
 
     await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, welcomeMessage);
     return;
