@@ -509,6 +509,130 @@ app.post('/api/views/track', async (req, res) => {
   }
 });
 
+// GET /api/views/stats/:applicationId - Статистика просмотров для менеджера
+app.get('/api/views/stats/:applicationId', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    // Общее количество просмотров
+    const totalViews = await sql`
+      SELECT COUNT(*) as count
+      FROM views
+      WHERE application_id = ${applicationId}
+    `;
+
+    // Просмотры за последние 7 дней по дням
+    const viewsByDay = await sql`
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as views
+      FROM views
+      WHERE application_id = ${applicationId}
+        AND created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+    `;
+
+    // Последние 10 просмотров
+    const recentViews = await sql`
+      SELECT viewer_username, created_at
+      FROM views
+      WHERE application_id = ${applicationId}
+      ORDER BY created_at DESC
+      LIMIT 10
+    `;
+
+    res.json({
+      totalViews: parseInt(totalViews.rows[0].count),
+      viewsByDay: viewsByDay.rows,
+      recentViews: recentViews.rows
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Failed to get statistics' });
+  }
+});
+
+// ==================== RATINGS ROUTES ====================
+
+// POST /api/ratings/submit - Отправка рейтинга и отзыва
+app.post('/api/ratings/submit', async (req, res) => {
+  try {
+    const { applicationId, viewerId, viewerUsername, rating, review } = req.body;
+
+    if (!applicationId || !viewerId || !rating) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+
+    // Сохраняем или обновляем рейтинг
+    await sql`
+      INSERT INTO ratings (application_id, viewer_id, viewer_username, rating, review)
+      VALUES (${applicationId}, ${viewerId}, ${viewerUsername || 'anonymous'}, ${rating}, ${review || null})
+      ON CONFLICT (application_id, viewer_id)
+      DO UPDATE SET 
+        rating = ${rating},
+        review = ${review || null},
+        created_at = NOW()
+    `;
+
+    // Обновляем средний рейтинг в applications
+    const avgResult = await sql`
+      SELECT 
+        AVG(rating)::DECIMAL(2,1) as avg_rating,
+        COUNT(*) as count
+      FROM ratings
+      WHERE application_id = ${applicationId}
+    `;
+
+    const { avg_rating, count } = avgResult.rows[0];
+
+    await sql`
+      UPDATE applications
+      SET 
+        average_rating = ${avg_rating},
+        ratings_count = ${count}
+      WHERE id = ${applicationId}
+    `;
+
+    res.json({ 
+      success: true, 
+      message: 'Rating submitted',
+      averageRating: parseFloat(avg_rating),
+      ratingsCount: parseInt(count)
+    });
+  } catch (error) {
+    console.error('Submit rating error:', error);
+    res.status(500).json({ error: 'Failed to submit rating' });
+  }
+});
+
+// GET /api/ratings/list/:applicationId - Список отзывов
+app.get('/api/ratings/list/:applicationId', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { limit = 20, offset = 0 } = req.query;
+
+    const result = await sql`
+      SELECT 
+        id, viewer_username, rating, review, created_at
+      FROM ratings
+      WHERE application_id = ${applicationId}
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('List ratings error:', error);
+    res.status(500).json({ error: 'Failed to fetch ratings' });
+  }
+});
+
 // ==================== TELEGRAM BOT WEBHOOK ====================
 
 // POST /api/bot/main-webhook - Webhook для основного бота
@@ -549,6 +673,64 @@ app.post('/api/bot/main-webhook', async (req, res) => {
                            `Администратор выдаст вам код после одобрения и публикации вашей заявки.`;
       
       await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, requestMessage);
+      return res.json({ ok: true });
+    }
+
+    // Команда /stats - статистика просмотров
+    if (text === '/stats') {
+      try {
+        const services = await sql`
+          SELECT id, name, average_rating, ratings_count
+          FROM applications
+          WHERE manager_telegram_id = ${chatId} AND status = 'published'
+        `;
+
+        if (services.rows.length === 0) {
+          await sendTelegramMessage(
+            MAIN_BOT_TOKEN,
+            chatId,
+            '📊 <b>У вас пока нет опубликованных услуг</b>\n\nКак только ваша заявка будет одобрена, здесь появится статистика.'
+          );
+          return res.json({ ok: true });
+        }
+
+        let statsMessage = '📊 <b>Статистика ваших услуг:</b>\n\n';
+
+        for (const service of services.rows) {
+          const totalViews = await sql`
+            SELECT COUNT(*) as count
+            FROM views
+            WHERE application_id = ${service.id}
+          `;
+
+          const weekViews = await sql`
+            SELECT COUNT(*) as count
+            FROM views
+            WHERE application_id = ${service.id}
+              AND created_at >= NOW() - INTERVAL '7 days'
+          `;
+
+          const total = parseInt(totalViews.rows[0].count);
+          const week = parseInt(weekViews.rows[0].count);
+          const rating = service.average_rating ? parseFloat(service.average_rating).toFixed(1) : '—';
+          const ratingsCount = service.ratings_count || 0;
+
+          statsMessage += `📋 <b>${service.name}</b>\n`;
+          statsMessage += `👁 Просмотры: ${total} всего / ${week} за неделю\n`;
+          statsMessage += `⭐ Рейтинг: ${rating}/5.0 (${ratingsCount} отзывов)\n\n`;
+        }
+
+        statsMessage += '💡 <i>Статистика обновляется в реальном времени</i>';
+
+        await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, statsMessage);
+      } catch (error) {
+        console.error('Stats command error:', error);
+        await sendTelegramMessage(
+          MAIN_BOT_TOKEN,
+          chatId,
+          '❌ Ошибка при получении статистики. Попробуйте позже.'
+        );
+      }
       return res.json({ ok: true });
     }
 
@@ -695,6 +877,67 @@ async function handleBotMessage(message) {
                          `Администратор выдаст вам код после одобрения и публикации вашей заявки.`;
     
     await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, requestMessage);
+    return;
+  }
+
+  // Команда /stats - статистика просмотров
+  if (text === '/stats') {
+    try {
+      // Находим все услуги менеджера
+      const services = await sql`
+        SELECT id, name, average_rating, ratings_count
+        FROM applications
+        WHERE manager_telegram_id = ${chatId} AND status = 'published'
+      `;
+
+      if (services.rows.length === 0) {
+        await sendTelegramMessage(
+          MAIN_BOT_TOKEN,
+          chatId,
+          '📊 <b>У вас пока нет опубликованных услуг</b>\n\nКак только ваша заявка будет одобрена, здесь появится статистика.'
+        );
+        return;
+      }
+
+      let statsMessage = '📊 <b>Статистика ваших услуг:</b>\n\n';
+
+      for (const service of services.rows) {
+        // Получаем просмотры за всё время
+        const totalViews = await sql`
+          SELECT COUNT(*) as count
+          FROM views
+          WHERE application_id = ${service.id}
+        `;
+
+        // Просмотры за последние 7 дней
+        const weekViews = await sql`
+          SELECT COUNT(*) as count
+          FROM views
+          WHERE application_id = ${service.id}
+            AND created_at >= NOW() - INTERVAL '7 days'
+        `;
+
+        const total = parseInt(totalViews.rows[0].count);
+        const week = parseInt(weekViews.rows[0].count);
+        const rating = service.average_rating ? parseFloat(service.average_rating).toFixed(1) : '—';
+        const ratingsCount = service.ratings_count || 0;
+
+        statsMessage += `📋 <b>${service.name}</b>\n`;
+        statsMessage += `👁 Просмотры: ${total} всего / ${week} за неделю\n`;
+        statsMessage += `⭐ Рейтинг: ${rating}/5.0 (${ratingsCount} отзывов)\n\n`;
+      }
+
+      statsMessage += '💡 <i>Статистика обновляется в реальном времени</i>';
+
+      await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, statsMessage);
+    } catch (error) {
+      console.error('Stats command error:', error);
+      await sendTelegramMessage(
+        MAIN_BOT_TOKEN,
+        chatId,
+        '❌ Ошибка при получении статистики. Попробуйте позже.'
+      );
+    }
     return;
   }
 
