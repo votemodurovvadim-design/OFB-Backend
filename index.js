@@ -225,7 +225,15 @@ app.post('/api/applications/submit', async (req, res) => {
       const message = `🆕 <b>Новая заявка</b>\n\n` +
                      `👤 Менеджер: @${managerUsername.replace('@', '')}`;
       
-      await sendTelegramMessage(NOTIFY_BOT_TOKEN, ADMIN_TELEGRAM_ID, message);
+      console.log('📤 Sending notification to admin:', ADMIN_TELEGRAM_ID);
+      console.log('Using bot token:', NOTIFY_BOT_TOKEN ? 'Present' : 'Missing');
+      
+      const sendResult = await sendTelegramMessage(NOTIFY_BOT_TOKEN, ADMIN_TELEGRAM_ID, message);
+      console.log('📬 Admin notification result:', sendResult);
+    } else {
+      console.log('⚠️ Missing NOTIFY_BOT_TOKEN or ADMIN_TELEGRAM_ID');
+      console.log('NOTIFY_BOT_TOKEN:', NOTIFY_BOT_TOKEN ? 'Present' : 'Missing');
+      console.log('ADMIN_TELEGRAM_ID:', ADMIN_TELEGRAM_ID || 'Missing');
     }
 
     res.json({ 
@@ -357,6 +365,24 @@ app.put('/api/applications/update', async (req, res) => {
   } catch (error) {
     console.error('Update application error:', error);
     res.status(500).json({ error: 'Failed to update application' });
+  }
+});
+
+// DELETE /api/applications/delete/:id - Удаление заявки
+app.delete('/api/applications/delete/:id', checkAdminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Удаляем заявку
+    await sql`
+      DELETE FROM applications 
+      WHERE id = ${id}
+    `;
+
+    res.json({ success: true, message: 'Application deleted' });
+  } catch (error) {
+    console.error('Delete application error:', error);
+    res.status(500).json({ error: 'Failed to delete application' });
   }
 });
 
