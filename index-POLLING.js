@@ -638,25 +638,137 @@ app.post('/api/bot/webhook', async (req, res) => {
   }
 });
 
+// Функция polling для основного бота
+let offset = 0;
+async function startPolling() {
+  setInterval(async () => {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${MAIN_BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30`
+      );
+      const data = await response.json();
+      
+      if (data.ok && data.result.length > 0) {
+        for (const update of data.result) {
+          offset = update.update_id + 1;
+          
+          // Обрабатываем сообщение
+          if (update.message) {
+            await handleBotMessage(update.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Polling error:', error);
+    }
+  }, 1000); // Опрос каждую секунду
+}
+
+// Обработчик сообщений бота
+async function handleBotMessage(message) {
+  if (!message || !message.text) return;
+
+  const chatId = message.chat.id;
+  const text = message.text.trim();
+  
+  // Команда /start
+  if (text === '/start') {
+    userStates.delete(chatId);
+    
+    const welcomeMessage = `🎯 <b>Добро пожаловать в OFB Catalog!</b>\n\n` +
+                          `📱 Откройте каталог премиум-услуг для OnlyFans индустрии.\n\n` +
+                          `💼 Если вы получили код активации, используйте команду:\n` +
+                          `/register\n\n` +
+                          `После этого просто отправьте ваш код.`;
+
+    await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, welcomeMessage);
+    return;
+  }
+
+  // Команда /register - запрос кода
+  if (text === '/register') {
+    userStates.set(chatId, { waitingForCode: true });
+    
+    const requestMessage = `🔑 <b>Регистрация кода уведомлений</b>\n\n` +
+                         `Пожалуйста, укажите свой код в формате:\n` +
+                         `<code>OFB-12345678</code>\n\n` +
+                         `Администратор выдаст вам код после одобрения и публикации вашей заявки.`;
+    
+    await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, requestMessage);
+    return;
+  }
+
+  // Проверяем, ждёт ли пользователь ввода кода
+  const userState = userStates.get(chatId);
+  
+  // Проверка кода (с командой или без)
+  const codeMatch = text.match(/^(?:\/register\s+)?(OFB-\d{8})$/i);
+  if (codeMatch || (userState?.waitingForCode && text.match(/^OFB-\d{8}$/i))) {
+    const code = (codeMatch ? codeMatch[1] : text).toUpperCase();
+    
+    // Очищаем состояние
+    userStates.delete(chatId);
+
+    // Ищем заявку с таким кодом
+    const result = await sql`
+      SELECT id, name, manager_username 
+      FROM applications 
+      WHERE UPPER(notify_code) = ${code} AND status = 'published'
+    `;
+
+    if (result.rows.length > 0) {
+      const { id, name, manager_username } = result.rows[0];
+
+      // Сохраняем telegram_id менеджера
+      await sql`
+        UPDATE applications 
+        SET manager_telegram_id = ${chatId}
+        WHERE id = ${id}
+      `;
+
+      const successMessage = `✅ <b>Регистрация успешна!</b>\n\n` +
+                            `🏢 Компания: ${name}\n` +
+                            `👤 Менеджер: @${manager_username.replace('@', '')}\n\n` +
+                            `🔔 Теперь вы будете получать уведомления когда пользователи просматривают вашу услугу в каталоге.`;
+
+      await sendTelegramMessage(MAIN_BOT_TOKEN, chatId, successMessage);
+    } else {
+      await sendTelegramMessage(
+        MAIN_BOT_TOKEN, 
+        chatId, 
+        '❌ <b>Код не найден</b>\n\nВозможные причины:\n• Код введён неправильно\n• Заявка ещё не одобрена\n• Код уже использован\n\nПроверьте код и попробуйте снова командой /register'
+      );
+    }
+    return;
+  }
+
+  // Если пользователь ждёт код, но отправил что-то не то
+  if (userState?.waitingForCode) {
+    await sendTelegramMessage(
+      MAIN_BOT_TOKEN,
+      chatId,
+      '❌ Неправильный формат кода.\n\nКод должен быть в формате: <code>OFB-12345678</code>\n\nПопробуйте ещё раз или отправьте /register для новой попытки.'
+    );
+    return;
+  }
+}
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`🚀 OFB Backend API running on port ${PORT}`);
   
   const baseUrl = process.env.RENDER_EXTERNAL_URL || 'https://ofb-backend.onrender.com';
   
-  // Устанавливаем webhook для основного бота
+  // Удаляем webhook для основного бота и включаем polling
   if (MAIN_BOT_TOKEN) {
-    const mainWebhookUrl = `${baseUrl}/api/bot/main-webhook`;
     try {
-      const response = await fetch(`https://api.telegram.org/bot${MAIN_BOT_TOKEN}/setWebhook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: mainWebhookUrl })
-      });
-      const data = await response.json();
-      console.log('✅ Main bot webhook set:', mainWebhookUrl, data);
+      await fetch(`https://api.telegram.org/bot${MAIN_BOT_TOKEN}/deleteWebhook`);
+      console.log('🔄 Main bot webhook deleted, starting polling...');
+      
+      // Запускаем polling
+      startPolling();
     } catch (err) {
-      console.error('❌ Main bot webhook error:', err);
+      console.error('❌ Main bot setup error:', err);
     }
   }
   
