@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import pkg from '@vercel/postgres';
+import { sql } from '@vercel/postgres';
 const { sql } = pkg;
 
 // Используем DATABASE_URL
