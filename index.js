@@ -369,7 +369,12 @@ app.put('/api/applications/update', async (req, res) => {
 });
 
 // DELETE /api/applications/delete/:id - Удаление заявки
-app.delete('/api/applications/delete/:id', checkAdminAuth, async (req, res) => {
+app.delete('/api/applications/delete/:id', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!verifyToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const { id } = req.params;
 
