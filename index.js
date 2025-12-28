@@ -1,7 +1,7 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const cors = require('cors');
+import 'dotenv/config';
+import TelegramBot from 'node-telegram-bot-api';
+import express from 'express';
+import cors from 'cors';
 
 // Инициализация бота
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -129,10 +129,15 @@ bot.onText(/\/announce/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
+  console.log('📢 /announce command received from user:', userId, 'in chat:', chatId);
+  
   // Проверка что команду отправил админ
   if (!ADMIN_IDS.includes(userId)) {
+    console.log('❌ User not admin:', userId);
     return bot.sendMessage(chatId, '❌ Эта команда доступна только администраторам');
   }
+  
+  console.log('✅ Admin verified, sending announcement...');
   
   const announcement = 
     '💎 *OFB CATALOG*\n\n' +
@@ -161,16 +166,20 @@ bot.onText(/\/announce/, async (msg) => {
       }
     });
     
+    console.log('✅ Announcement sent, message ID:', sentMessage.message_id);
+    
     // Закрепляем сообщение
     await bot.pinChatMessage(chatId, sentMessage.message_id, {
-      disable_notification: true // тихое закрепление без уведомления
+      disable_notification: true
     });
     
+    console.log('📌 Message pinned successfully');
+    
     // Подтверждение админу в личные сообщения
-    bot.sendMessage(userId, '✅ Объявление опубликовано и закреплено в чате!');
+    await bot.sendMessage(userId, '✅ Объявление опубликовано и закреплено в чате!');
     
   } catch (error) {
-    console.error('Announce error:', error);
+    console.error('❌ Announce error:', error);
     bot.sendMessage(userId, '❌ Ошибка при публикации: ' + error.message);
   }
 });
@@ -218,9 +227,6 @@ app.post('/api/notify-view', async (req, res) => {
 app.post('/api/submit-application', async (req, res) => {
   try {
     const { category, name, description, managerUsername, contactLink, logoData } = req.body;
-    
-    // Здесь должна быть логика сохранения в базу данных
-    // и отправка уведомления админам
     
     // Генерация 8-значного кода
     const notificationCode = Math.floor(10000000 + Math.random() * 90000000).toString();
@@ -278,7 +284,7 @@ app.listen(PORT, () => {
 
 // Обработка ошибок бота
 bot.on('polling_error', (error) => {
-  console.error('Polling error:', error);
+  console.error('❌ Polling error:', error);
 });
 
 // Graceful shutdown
