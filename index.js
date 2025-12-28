@@ -423,6 +423,8 @@ app.get('/api/companies/list', async (req, res) => {
   try {
     const { category, language = 'ru' } = req.query;
 
+    console.log('📋 Request for category:', category);
+
     if (!category) {
       return res.status(400).json({ error: 'Category is required' });
     }
@@ -430,7 +432,9 @@ app.get('/api/companies/list', async (req, res) => {
     const result = await sql`
       SELECT 
         id, category, name, description, description_en,
-        logo_url, manager_username, contact_link
+        logo_url, manager_username, contact_link,
+        COALESCE(average_rating, 0) as average_rating,
+        COALESCE(ratings_count, 0) as ratings_count
       FROM applications
       WHERE 
         category = ${category}
@@ -440,6 +444,12 @@ app.get('/api/companies/list', async (req, res) => {
       ORDER BY created_at DESC
     `;
 
+    console.log(`✅ Found ${result.rows.length} companies in category ${category}`);
+    
+    if (result.rows.length > 0) {
+      console.log('First company:', result.rows[0].name);
+    }
+
     const companies = result.rows.map(row => ({
       id: row.id,
       category: row.category,
@@ -447,7 +457,9 @@ app.get('/api/companies/list', async (req, res) => {
       description: language === 'en' && row.description_en ? row.description_en : row.description,
       logo_url: row.logo_url || '/images/placeholder.png',
       manager_username: row.manager_username,
-      contact_link: row.contact_link
+      contact_link: row.contact_link,
+      average_rating: row.average_rating || 0,
+      ratings_count: row.ratings_count || 0
     }));
 
     res.json(companies);
