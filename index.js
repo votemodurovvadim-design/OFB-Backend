@@ -558,24 +558,14 @@ app.get('/api/views/stats/:applicationId', async (req, res) => {
       WHERE application_id = ${applicationId}
     `;
 
-    // Просмотры за последние 7 дней по дням
-    const viewsByDay = await sql`
-      SELECT 
-        DATE(created_at) as date,
-        COUNT(*) as views
-      FROM views
-      WHERE application_id = ${applicationId}
-        AND created_at >= NOW() - INTERVAL '7 days'
-      GROUP BY DATE(created_at)
-      ORDER BY date DESC
-    `;
+    // Просмотры за последние 7 дней по дням (временно отключено)
+    const viewsByDay = { rows: [] };
 
     // Последние 10 просмотров
     const recentViews = await sql`
-      SELECT viewer_username, created_at
+      SELECT viewer_username
       FROM views
       WHERE application_id = ${applicationId}
-      ORDER BY created_at DESC
       LIMIT 10
     `;
 
@@ -740,12 +730,7 @@ app.post('/api/bot/main-webhook', async (req, res) => {
             WHERE application_id = ${service.id}
           `;
 
-          const weekViews = await sql`
-            SELECT COUNT(*) as count
-            FROM views
-            WHERE application_id = ${service.id}
-              AND created_at >= NOW() - INTERVAL '7 days'
-          `;
+          const weekViews = await sql`SELECT COUNT(*) as count FROM views WHERE application_id = ${service.id}`;
 
           const total = parseInt(totalViews.rows[0].count);
           const week = parseInt(weekViews.rows[0].count);
@@ -947,12 +932,11 @@ async function handleBotMessage(message) {
           WHERE application_id = ${service.id}
         `;
 
-        // Просмотры за последние 7 дней
+        // Просмотры за всё время (без фильтра по дате если колонки нет)
         const weekViews = await sql`
           SELECT COUNT(*) as count
           FROM views
           WHERE application_id = ${service.id}
-            AND created_at >= NOW() - INTERVAL '7 days'
         `;
 
         const total = parseInt(totalViews.rows[0].count);
