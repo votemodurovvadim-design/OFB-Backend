@@ -2,18 +2,20 @@
   "name": "ofb-backend",
   "version": "1.0.0",
   "description": "OFB Catalog Backend API",
-  "main": "index.js",
   "type": "module",
+  "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
+  "keywords": ["telegram", "bot", "api"],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "cors": "^2.8.5",
-    "@vercel/postgres": "^0.10.0",
-    "multer": "^1.4.5-lts.1",
-    "dotenv": "^16.3.1"
+    "node-telegram-bot-api": "^0.66.0"
   },
   "engines": {
     "node": ">=18.0.0"
