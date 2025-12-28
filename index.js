@@ -4,7 +4,7 @@ import express from 'express';
 import cors from 'cors';
 
 // Инициализация бота
-const token = process.env.TELEGRAM_BOT_TOKEN;
+const token = process.env.VITE_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 // Инициализация Express сервера
